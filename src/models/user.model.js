@@ -43,6 +43,15 @@ const userSchema = new mongoose.Schema(
     type: String,
     default: "",
 },
+resumeAnalysis: {
+  type: mongoose.Schema.Types.Mixed,
+  default: null,
+},
+
+analysisDate: {
+  type: Date,
+  default: null,
+},
   },
   {
     timestamps: true,

@@ -4,6 +4,7 @@ import ApiError from "../utils/ApiError.js";
 import ApiResponse from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
+import analyzeResume from "../utils/gemini.js";
 const generateAccessAndRefreshTokens = async (userId) => {
   try {
     const user = await User.findById(userId);
@@ -192,9 +193,9 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
     );
 });
 const uploadResume = asyncHandler(async (req, res) => {
-
+   console.log("Step 1: Request received");
     const localFilePath = req.file?.path;
-    console.log(localFilePath);
+console.log("Step 2:", localFilePath);
 
     
 
@@ -203,7 +204,7 @@ const uploadResume = asyncHandler(async (req, res) => {
     }
 
     const resume = await uploadOnCloudinary(localFilePath);
-
+ console.log("Step 3: Uploaded to Cloudinary");
     if (!resume) {
         throw new ApiError(500, "Error uploading resume");
     }
@@ -221,7 +222,7 @@ const uploadResume = asyncHandler(async (req, res) => {
     ).select("-password -refreshToken");
 
 
-
+    console.log("Step 4: MongoDB Updated");
     return res.status(200).json(
         new ApiResponse(
             200,
@@ -230,4 +231,63 @@ const uploadResume = asyncHandler(async (req, res) => {
         )
     );
 });
-export { registerUser,loginUser,logoutUser,getCurrentUser,refreshAccessToken,uploadResume };
+
+const analyzeResumeController = async (req, res) => {
+    try {
+        const user = req.user;
+
+        if (!user.resume) {
+            return res.status(404).json({
+                success: false,
+                message: "Resume not uploaded",
+            });
+        }
+
+        // Analyze resume directly from Cloudinary URL
+  const analysis = await analyzeResume(user.resume);
+
+await User.findByIdAndUpdate(
+    user._id,
+    {
+        $set: {
+            resumeAnalysis: analysis,
+            analysisDate: new Date(),
+        },
+    }
+);
+
+return res.status(200).json({
+    success: true,
+    message: "Resume analyzed successfully",
+    analysis,
+});
+
+    } catch (error) {
+        console.error("Resume Analysis Error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: error.message || "Internal Server Error",
+        });
+    }
+};
+
+const getResumeAnalysis = asyncHandler(async (req, res) => {
+    const user = await User.findById(req.user._id).select(
+        "resumeAnalysis analysisDate"
+    );
+
+    if (!user.resumeAnalysis) {
+        throw new ApiError(404, "Resume analysis not found");
+    }
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            user.resumeAnalysis,
+            "Resume analysis fetched successfully"
+        )
+    );
+});
+
+export { registerUser,loginUser,logoutUser,getCurrentUser,refreshAccessToken,uploadResume,analyzeResumeController,getResumeAnalysis };
