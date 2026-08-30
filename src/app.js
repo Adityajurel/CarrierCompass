@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import errorHandler from "./middlewares/error.middleware.js";
 const app = express();
 import userRoutes from "./routes/user.routes.js";
+import collegeRoutes from "./routes/college.routes.js";
 
 
 
@@ -22,5 +23,7 @@ app.get("/api/v1/health", (req, res) => {
         message: "Server is running successfully"
     });
 });
+app.use("/api/v1/college", collegeRoutes);
+
 app.use(errorHandler);
 export default app;

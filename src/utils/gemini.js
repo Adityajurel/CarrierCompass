@@ -8,6 +8,9 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
+const sleep = (ms) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 const analyzeResume = async (resumeUrl) => {
   try {
     const response = await axios.get(resumeUrl, {
@@ -156,7 +159,14 @@ Rules:
 14. Ensure the JSON is syntactically valid.
 `;
 
-    const result = await ai.models.generateContent({
+let result;
+
+for (let attempt = 1; attempt <= 3; attempt++) {
+  try {
+
+    console.log(`Gemini Attempt ${attempt}`);
+
+    result = await ai.models.generateContent({
       model: "gemini-3.5-flash",
       contents: [
         {
@@ -175,6 +185,26 @@ Rules:
       ],
     });
 
+    // Success
+    break;
+
+  } catch (error) {
+
+    if (error.status === 503 && attempt < 3) {
+
+      console.log(
+        `Gemini busy. Retrying in 3 seconds... (${attempt}/3)`
+      );
+
+      await sleep(3000);
+
+      continue;
+    }
+
+    throw error;
+  }
+}
+
     const text = result.text.trim();
 
     const cleaned = text
@@ -184,20 +214,26 @@ Rules:
 
     return JSON.parse(cleaned);
 
-  } catch (error) {
-    console.error("Gemini Error:", error);
-    if (error.status === 500||error.status===503) {
+  }catch (error) {
+
+  console.error("========== GEMINI ERROR ==========");
+  console.error(error);
+
+  if (error.status === 503) {
     throw new Error(
-      "AI service is currently busy. Please try again in a few moments."
+      "AI servers are currently busy. Please try again after a minute."
     );
   }
+
   if (error.status === 429) {
     throw new Error(
       "AI quota exceeded. Please try again later."
     );
   }
-    throw new Error("Resume analysis failed");
-  }
-};
+
+  throw new Error(
+    error.message || "Resume analysis failed."
+  );
+}};
 
 export default analyzeResume;

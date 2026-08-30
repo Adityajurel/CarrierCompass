@@ -91,8 +91,9 @@ const loginUser = asyncHandler(async (req, res) => {
   // Cookie Options
   const options = {
     httpOnly: true,
-    secure: true,
-  };
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+};
 
   // Response
   return res
@@ -136,9 +137,10 @@ const logoutUser = asyncHandler(async (req, res) => {
   );
 
   const options = {
-    httpOnly: true,
-    secure: false, // Development
-  };
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+};
 
   return res
     .status(200)
@@ -213,8 +215,10 @@ console.log("Step 2:", localFilePath);
         req.user._id,
         {
             $set: {
-                resume: resume.secure_url,
-            },
+    resume: resume.secure_url,
+    resumeAnalysis: null,
+    analysisDate: null,
+},
         },
         {
             new: true,
@@ -242,6 +246,13 @@ const analyzeResumeController = async (req, res) => {
                 message: "Resume not uploaded",
             });
         }
+        if (user.resumeAnalysis) {
+    return res.status(200).json({
+        success: true,
+        message: "Resume already analyzed",
+        analysis: user.resumeAnalysis,
+    });
+}
 
         // Analyze resume directly from Cloudinary URL
   const analysis = await analyzeResume(user.resume);
@@ -263,13 +274,15 @@ return res.status(200).json({
 });
 
     } catch (error) {
-        console.error("Resume Analysis Error:", error);
 
-        return res.status(500).json({
-            success: false,
-            message: error.message || "Internal Server Error",
-        });
-    }
+    console.error("Resume Analysis Error:");
+    console.error(error);
+
+    return res.status(500).json({
+        success: false,
+        message: error.message,
+    });
+}
 };
 
 const getResumeAnalysis = asyncHandler(async (req, res) => {
