@@ -75,8 +75,8 @@ const CollegePredictor = () => {
     try {
       setLoading(true);
 
-      const res = await axios.post(
-        "http://localhost:5000/api/v1/college/predict",
+const res = await axios.post(
+  `${import.meta.env.VITE_API_URL}/college/predict`,
         {
           exam: form.exam,
           rank: Number(form.rank),
