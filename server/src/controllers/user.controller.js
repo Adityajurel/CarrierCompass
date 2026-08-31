@@ -1,3 +1,4 @@
+
 import User from "../models/user.model.js";
 import asyncHandler from "../utils/asyncHandler.js";
 import ApiError from "../utils/ApiError.js";
@@ -5,6 +6,7 @@ import ApiResponse from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import analyzeResume from "../utils/gemini.js";
+
 const generateAccessAndRefreshTokens = async (userId) => {
   try {
     const user = await User.findById(userId);
@@ -26,6 +28,8 @@ const generateAccessAndRefreshTokens = async (userId) => {
     );
   }
 };
+
+// ================= REGISTER =================
 
 const registerUser = asyncHandler(async (req, res) => {
   const { name, email, password, role } = req.body;
@@ -49,21 +53,28 @@ const registerUser = asyncHandler(async (req, res) => {
     role,
   });
 
-  const createdUser = await User.findById(user._id).select("-password -refreshToken");
+  const createdUser = await User.findById(user._id).select(
+    "-password -refreshToken"
+  );
 
   return res.status(201).json(
-    new ApiResponse(201, createdUser, "User registered successfully")
+    new ApiResponse(
+      201,
+      createdUser,
+      "User registered successfully"
+    )
   );
 });
+
+// ================= LOGIN =================
+
 const loginUser = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
-  // Validation
   if (!email || !password) {
     throw new ApiError(400, "All fields are mandatory");
   }
 
-  // Find User
   const user = await User.findOne({
     email: email.toLowerCase(),
   });
@@ -72,30 +83,27 @@ const loginUser = asyncHandler(async (req, res) => {
     throw new ApiError(401, "Invalid email or password");
   }
 
-  // Check Password
   const isPasswordValid = await user.isPasswordCorrect(password);
 
   if (!isPasswordValid) {
     throw new ApiError(401, "Invalid email or password");
   }
 
-  // Generate Tokens
- const { accessToken, refreshToken } =
-  await generateAccessAndRefreshTokens(user._id);
+  const { accessToken, refreshToken } =
+    await generateAccessAndRefreshTokens(user._id);
 
-  // Remove Sensitive Data
   const loggedInUser = await User.findById(user._id).select(
     "-password -refreshToken"
   );
 
-  // Cookie Options
+  // ================= PRODUCTION COOKIE OPTIONS =================
+
   const options = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-};
+    secure: true,
+    sameSite: "none",
+  };
 
-  // Response
   return res
     .status(200)
     .cookie("accessToken", accessToken, options)
@@ -113,6 +121,8 @@ const loginUser = asyncHandler(async (req, res) => {
     );
 });
 
+// ================= CURRENT USER =================
+
 const getCurrentUser = asyncHandler(async (req, res) => {
   return res.status(200).json(
     new ApiResponse(
@@ -122,6 +132,8 @@ const getCurrentUser = asyncHandler(async (req, res) => {
     )
   );
 });
+
+// ================= LOGOUT =================
 
 const logoutUser = asyncHandler(async (req, res) => {
   await User.findByIdAndUpdate(
@@ -137,17 +149,26 @@ const logoutUser = asyncHandler(async (req, res) => {
   );
 
   const options = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax",
-};
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+  };
 
   return res
     .status(200)
     .clearCookie("accessToken", options)
     .clearCookie("refreshToken", options)
-    .json(new ApiResponse(200, {}, "User logged out successfully"));
+    .json(
+      new ApiResponse(
+        200,
+        {},
+        "User logged out successfully"
+      )
+    );
 });
+
+// ================= REFRESH ACCESS TOKEN =================
+
 const refreshAccessToken = asyncHandler(async (req, res) => {
   const incomingRefreshToken =
     req.cookies.refreshToken || req.body.refreshToken;
@@ -168,7 +189,10 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
   }
 
   if (incomingRefreshToken !== user.refreshToken) {
-    throw new ApiError(401, "Refresh Token is expired or already used");
+    throw new ApiError(
+      401,
+      "Refresh Token is expired or already used"
+    );
   }
 
   const { accessToken, refreshToken } =
@@ -176,7 +200,8 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 
   const options = {
     httpOnly: true,
-    secure: false,
+    secure: true,
+    sameSite: "none",
   };
 
   return res
@@ -194,113 +219,130 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
       )
     );
 });
+
+// ================= UPLOAD RESUME =================
+
 const uploadResume = asyncHandler(async (req, res) => {
-   console.log("Step 1: Request received");
-    const localFilePath = req.file?.path;
-console.log("Step 2:", localFilePath);
+  console.log("Step 1: Request received");
 
-    
+  const localFilePath = req.file?.path;
 
-    if (!localFilePath) {
-        throw new ApiError(400, "Resume file is required");
+  console.log("Step 2:", localFilePath);
+
+  if (!localFilePath) {
+    throw new ApiError(400, "Resume file is required");
+  }
+
+  const resume = await uploadOnCloudinary(localFilePath);
+
+  console.log("Step 3: Uploaded to Cloudinary");
+
+  if (!resume) {
+    throw new ApiError(500, "Error uploading resume");
+  }
+
+  const updatedUser = await User.findByIdAndUpdate(
+    req.user._id,
+    {
+      $set: {
+        resume: resume.secure_url,
+        resumeAnalysis: null,
+        analysisDate: null,
+      },
+    },
+    {
+      new: true,
     }
+  ).select("-password -refreshToken");
 
-    const resume = await uploadOnCloudinary(localFilePath);
- console.log("Step 3: Uploaded to Cloudinary");
-    if (!resume) {
-        throw new ApiError(500, "Error uploading resume");
-    }
+  console.log("Step 4: MongoDB Updated");
 
-    const updatedUser = await User.findByIdAndUpdate(
-        req.user._id,
-        {
-            $set: {
-    resume: resume.secure_url,
-    resumeAnalysis: null,
-    analysisDate: null,
-},
-        },
-        {
-            new: true,
-        }
-    ).select("-password -refreshToken");
-
-
-    console.log("Step 4: MongoDB Updated");
-    return res.status(200).json(
-        new ApiResponse(
-            200,
-            updatedUser,
-            "Resume uploaded successfully"
-        )
-    );
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      updatedUser,
+      "Resume uploaded successfully"
+    )
+  );
 });
 
-const analyzeResumeController = async (req, res) => {
-    try {
-        const user = req.user;
+// ================= ANALYZE RESUME =================
 
-        if (!user.resume) {
-            return res.status(404).json({
-                success: false,
-                message: "Resume not uploaded",
-            });
-        }
-        if (user.resumeAnalysis) {
-    return res.status(200).json({
+const analyzeResumeController = async (req, res) => {
+  try {
+    const user = req.user;
+
+    if (!user.resume) {
+      return res.status(404).json({
+        success: false,
+        message: "Resume not uploaded",
+      });
+    }
+
+    if (user.resumeAnalysis) {
+      return res.status(200).json({
         success: true,
         message: "Resume already analyzed",
         analysis: user.resumeAnalysis,
-    });
-}
-
-        // Analyze resume directly from Cloudinary URL
-  const analysis = await analyzeResume(user.resume);
-
-await User.findByIdAndUpdate(
-    user._id,
-    {
-        $set: {
-            resumeAnalysis: analysis,
-            analysisDate: new Date(),
-        },
+      });
     }
-);
 
-return res.status(200).json({
-    success: true,
-    message: "Resume analyzed successfully",
-    analysis,
-});
+    const analysis = await analyzeResume(user.resume);
 
-    } catch (error) {
+    await User.findByIdAndUpdate(
+      user._id,
+      {
+        $set: {
+          resumeAnalysis: analysis,
+          analysisDate: new Date(),
+        },
+      }
+    );
 
+    return res.status(200).json({
+      success: true,
+      message: "Resume analyzed successfully",
+      analysis,
+    });
+  } catch (error) {
     console.error("Resume Analysis Error:");
     console.error(error);
 
     return res.status(500).json({
-        success: false,
-        message: error.message,
+      success: false,
+      message: error.message,
     });
-}
+  }
 };
 
+// ================= GET RESUME ANALYSIS =================
+
 const getResumeAnalysis = asyncHandler(async (req, res) => {
-    const user = await User.findById(req.user._id).select(
-        "resumeAnalysis analysisDate"
-    );
+  const user = await User.findById(req.user._id).select(
+    "resumeAnalysis analysisDate"
+  );
 
-    if (!user.resumeAnalysis) {
-        throw new ApiError(404, "Resume analysis not found");
-    }
+  if (!user.resumeAnalysis) {
+    throw new ApiError(404, "Resume analysis not found");
+  }
 
-    return res.status(200).json(
-        new ApiResponse(
-            200,
-            user.resumeAnalysis,
-            "Resume analysis fetched successfully"
-        )
-    );
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      user.resumeAnalysis,
+      "Resume analysis fetched successfully"
+    )
+  );
 });
 
-export { registerUser,loginUser,logoutUser,getCurrentUser,refreshAccessToken,uploadResume,analyzeResumeController,getResumeAnalysis };
+export {
+  registerUser,
+  loginUser,
+  logoutUser,
+  getCurrentUser,
+  refreshAccessToken,
+  uploadResume,
+  analyzeResumeController,
+  getResumeAnalysis,
+};
+
